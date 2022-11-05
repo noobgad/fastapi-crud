@@ -3,28 +3,38 @@ from typing import List, Optional
 from fastapi import Depends, status, HTTPException, APIRouter
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app import models, oauth2
 from app.database import get_db
-from app.schemas import PostResponse, PostCreate
+from app.schemas import PostOut, PostResponse, PostCreate
 
 router = APIRouter(prefix="/posts", tags=['Posts'])
 
 
-@router.get("/", response_model=List[PostResponse])
+# @router.get("/", response_model=List[PostResponse])
+@router.get("/", response_model=List[PostOut])
 def get_posts(db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user),
-              limit: int = 20, skip: int = 0, search: Optional[str] = ""):
+              limit: int = 10, skip: int = 0, search: Optional[str] = ""):
     # # Execute a query
     # cur.execute("SELECT * FROM posts")
     # # Retrieve query results
     # posts = cur.fetchall()
 
-    posts = db.query(models.Post).filter(
-        models.Post.title.contains(search)).limit(limit).offset(skip).all()
+    # posts = db.query(models.Post).filter(
+    #     models.Post.title.contains(search)).limit(limit).offset(skip).all()
 
+    join_query = (db.query(models.Post, func.count(models.Vote.post_id).label("no_of_votes"))
+                    .join(models.Vote, models.Post.id == models.Vote.post_id, isouter=True)
+                    .group_by(models.Post.id))
+
+    posts_with_votes = join_query.filter(
+        models.Post.title.contains(search)).limit(limit).offset(skip).all()
+    # print(join_query)
     # print(posts)
-    return posts
-    # return {"data": "Success!"}
+
+    # return posts
+    return posts_with_votes
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=PostResponse)
@@ -45,16 +55,23 @@ def create_posts(post: PostCreate, db: Session = Depends(get_db), current_user: 
     return new_post
 
 
-@router.get("/{id}", response_model=PostResponse)
+# @router.get("/{id}", response_model=PostResponse)
+@router.get("/{id}", response_model=PostOut)
 def get_post(id: int, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
     # cur.execute("""SELECT * FROM posts WHERE id = (%s)""", (str(id),))
     # post = cur.fetchone()
 
-    post = db.query(models.Post).filter(models.Post.id == id).first()
+    # post = db.query(models.Post).filter(models.Post.id == id).first()
+    
     # print(post)
-    print(post.user_id)
-    print(current_user.id)
-    print(oauth2.get_current_user)
+    # print(post.user_id)
+    # print(current_user.id)
+    # print(oauth2.get_current_user)
+    join_query_post_votes = (db.query(models.Post, func.count(models.Vote.post_id).label("no_of_votes"))
+                .join(models.Vote, models.Post.id == models.Vote.post_id, isouter=True)
+                .group_by(models.Post.id))
+
+    post = join_query_post_votes.filter(models.Post.id == id).first()
 
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
